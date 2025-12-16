@@ -1,11 +1,11 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { config, runtimeConfig, updateRuntimeConfig, getRuntimeConfig } from '../config/environment';
 import { keyboards } from './keyboards';
-import { ledger } from '../core/ledger'; // CORRECTION du chemin et des guillemets
-import { formatters } from '../utils/formatter'; // CORRECTION du chemin et des guillemets
-import { copyEngine } from '../core/copyEngine'; // CORRECTION du chemin et des guillemets
+import { ledger } from '../core/ledger'; 
+import { formatters } from '../utils/formatter';
+import { copyEngine } from '../core/copyEngine'; 
 import { discoveryWallet } from '../core/discoveryWallet';
-import { listener } from '../core/listener'; // CORRECTION du chemin et des guillemets
+import { listener } from '../core/listener'; // L'objet listener est une instance de SolanaListener
 
 class TelegramBotManager {
   private bot: TelegramBot;
@@ -14,7 +14,11 @@ class TelegramBotManager {
   constructor() {
     this.bot = new TelegramBot(config.tgToken, { polling: true });
     this.setupHandlers();
+    // Initialiser botActive basé sur l'état initial
+    this.botActive = false; // Sera vrai si l'état est chargé actif ou si l'utilisateur appuie sur /start
   }
+
+  // ... (setupHandlers inchangé)
 
   private setupHandlers() {
     // Commande /start
@@ -43,7 +47,7 @@ class TelegramBotManager {
     if (data === 'start_bot') {
       // Démarrer le listener et le discovery wallet
       if (!listener.isActive()) {
-        listener.start();
+        listener.start(); // CORRECTION TS2339
       }
       if (!discoveryWallet.isRunning()) {
         discoveryWallet.start();
@@ -56,7 +60,7 @@ class TelegramBotManager {
 
     if (data === 'stop_bot') {
       // Arrêter le listener et le discovery wallet
-      listener.stop();
+      listener.stop(); // CORRECTION TS2339
       discoveryWallet.stop();
       this.botActive = false;
       return this.bot.sendMessage(chatId, '⏸ Bot mis en pause', {
@@ -67,7 +71,9 @@ class TelegramBotManager {
     if (data === 'show_pnl') {
       return this.showPnl(chatId);
     }
-
+    
+    // ... (Reste de handleCallback inchangé)
+    
     if (data === 'show_wallets') {
       return this.showWallets(chatId);
     }
@@ -98,8 +104,7 @@ class TelegramBotManager {
     }
   }
 
-  // ============ AFFICHAGE ============
-
+  // ... (Reste des fonctions inchangé)
   sendMainMenu(chatId: number) {
     const status = this.botActive ? '🟢 ACTIF' : '🔴 PAUSE';
     const stats = ledger.getStats();
