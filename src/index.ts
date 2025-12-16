@@ -1,7 +1,5 @@
-// Assurez-vous que ce fichier est dans src/index.ts
-
 import { config, validateConfig, runtimeConfig } from './config/environment';
-import { listener } from './core/listener';
+import { listener } from './core/listener'; // L'objet listener est une instance de SolanaListener
 import { copyEngine } from './core/copyEngine';
 import { discoveryWallet } from './core/discoveryWallet';
 import { telegramBot } from './telegram/bot';
@@ -19,7 +17,7 @@ async function main() {
 
     // 2. Charger l'état persistant
     console.log('💾 Chargement de l\'état précédent...');
-    ledger.loadState(); // CORRECTION TS2339
+    ledger.loadState();
     console.log('✅ État chargé.\n');
 
     // 3. Afficher les paramètres
@@ -40,9 +38,9 @@ async function main() {
     // 5. Lancer les modules si la configuration initiale le permet (ou attente via Telegram)
     console.log('5. Tentative de démarrage du Listener et du Discovery Wallet si actif...');
     
-    // Démarrer seulement si l'état du bot est marqué comme actif
+    // Correction: Les appels à start/stop sont maintenant synchrones sur l'objet listener
     if (telegramBot.isActive()) { 
-      listener.start();
+      listener.start(); // CORRECTION TS2339
       discoveryWallet.start();
     } else {
       console.log('   Le Listener et Discovery Wallet sont en PAUSE (démarrer via Telegram)');
@@ -61,7 +59,7 @@ async function main() {
       console.log(`📊 [${new Date().toLocaleTimeString()}] Positions: ${stats.activePositions} | PNL: ${stats.totalPnl.toFixed(4)} SOL`);
       
       discoveryWallet.clearOldDiscoveries(24);
-      ledger.saveState(); // CORRECTION TS2339 (Ligne 66)
+      ledger.saveState();
     }, 60000); 
 
     // 8. Gestion des erreurs non capturées et arrêt propre
@@ -76,10 +74,10 @@ async function main() {
     process.on('SIGINT', async () => {
       console.log('\n🛑 Arrêt du bot...');
       
-      listener.stop();
+      listener.stop(); // CORRECTION TS2339
       discoveryWallet.stop();
       copyEngine.stopAllMonitoring();
-      ledger.saveState(); // CORRECTION TS2339 (Ligne 84)
+      ledger.saveState();
       
       await telegramBot.getBot().sendMessage(
         config.chatId,
