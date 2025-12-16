@@ -1,9 +1,11 @@
+// Assurez-vous que ce fichier est dans src/index.ts
+
 import { config, validateConfig, runtimeConfig } from './config/environment';
-import { listener } from './core/listener'; // CORRECTION du chemin et des guillemets
-import { copyEngine } from './core/copyEngine'; // CORRECTION du chemin et des guillemets
+import { listener } from './core/listener';
+import { copyEngine } from './core/copyEngine';
 import { discoveryWallet } from './core/discoveryWallet';
 import { telegramBot } from './telegram/bot';
-import { ledger } from './core/ledger'; // CORRECTION du chemin et des guillemets
+import { ledger } from './core/ledger';
 
 async function main() {
   try {
@@ -15,11 +17,17 @@ async function main() {
     validateConfig();
     console.log('✅ Configuration valide\n');
 
-    // 2. Afficher les paramètres
+    // 2. Charger l'état persistant
+    console.log('💾 Chargement de l\'état précédent...');
+    ledger.loadState(); // CORRECTION TS2339: La méthode loadState existe maintenant
+    console.log('✅ État chargé.\n');
+
+    // 3. Afficher les paramètres
     console.log('⚙️ PARAMÈTRES:');
     console.log(`   Mode: ${config.mode}`);
     console.log(`   Master Wallet: ${config.masterWallet.slice(0, 8)}...`);
-    console.log(`   Auto Copy: ${runtimeConfig.autoCopy ? '✅ OUI' : '❌ NON'}`);
+    // Note: Utiliser config.autoCopy pour l'affichage initial
+    console.log(`   Auto Copy: ${runtimeConfig.autoCopy ? '✅ OUI' : '❌ NON'}`); 
     console.log('\n📊 Configuration Runtime (modifiable via Telegram):');
     console.log(`   Discovery: ${runtimeConfig.discoveryEnabled ? '🟢 ACTIF' : '🔴 INACTIF'}`);
     console.log(`   Discovery Range: ${runtimeConfig.minSolTransfer} - ${runtimeConfig.maxSolTransfer} SOL`);
@@ -27,16 +35,14 @@ async function main() {
     console.log(`   TP: +${runtimeConfig.tpPercent}% | SL: -${runtimeConfig.slPercent}%`);
     console.log('');
     
-    // 3. Initialiser le Telegram Bot. 
-    // La construction de l'objet (new TelegramBotManager()) déclenche le polling.
-    // L'appel à telegramBot.start() n'est plus nécessaire.
+    // 4. Initialiser le Telegram Bot. 
+    // CORRECTION TS2339: Suppression de l'appel inexistant à telegramBot.start()
     console.log('💬 Bot Telegram initialisé. En attente de commandes...');
 
-    // 4. Lancer les modules si la configuration initiale le permet (ou attente via Telegram)
-    console.log('4. Tentative de démarrage du Listener et du Discovery Wallet si actif...');
+    // 5. Lancer les modules si la configuration initiale le permet (ou attente via Telegram)
+    console.log('5. Tentative de démarrage du Listener et du Discovery Wallet si actif...');
     
-    // Note: Dans une architecture de bot, on attend souvent la commande /start du chat pour activer le listener.
-    // Je garde la logique de démarrage immédiat mais la rend conditionnelle.
+    // Démarrer seulement si l'état du bot est marqué comme actif (si la propriété existe)
     if (telegramBot.isActive()) { 
       listener.start();
       discoveryWallet.start();
@@ -44,24 +50,23 @@ async function main() {
       console.log('   Le Listener et Discovery Wallet sont en PAUSE (démarrer via Telegram)');
     }
     
-    // 5. Lancer l'engine de monitoring (pour surveiller les TP/SL des trades actifs)
-    copyEngine.startMonitoring();
+    // 6. Lancer l'engine de monitoring (pour surveiller les TP/SL des trades actifs)
+    console.log('6. Démarrage de l\'Engine de monitoring...');
+    copyEngine.startMonitoring(); // CORRECTION TS2339: start() remplacé par startMonitoring()
 
     console.log('\n✅ Le bot est prêt.');
     console.log('Instructions: Ouvrez votre Telegram et envoyez /start au bot.');
-    console.log('   - Vous pourrez démarrer/arrêter le listener, modifier taille de trade, TP, SL');
-    console.log('   - Voir statistiques et positions\n');
-
-    // 6. Monitoring périodique (Gardé du snippet)
+    
+    // 7. Monitoring périodique (Gardé du snippet)
     setInterval(() => {
       const stats = ledger.getStats();
       console.log(`📊 [${new Date().toLocaleTimeString()}] Positions: ${stats.activePositions} | PNL: ${stats.totalPnl.toFixed(4)} SOL`);
       
-      // Nettoyer les anciennes découvertes toutes les heures
       discoveryWallet.clearOldDiscoveries(24);
-    }, 60000); // Toutes les minutes
+      ledger.saveState(); // Ajout d'une sauvegarde périodique
+    }, 60000); 
 
-    // 7. Gestion des erreurs non capturées
+    // 8. Gestion des erreurs non capturées et arrêt propre
     process.on('unhandledRejection', (error: any) => {
       console.error('❌ Unhandled rejection:', error);
       telegramBot.getBot().sendMessage(
@@ -76,6 +81,7 @@ async function main() {
       listener.stop();
       discoveryWallet.stop();
       copyEngine.stopAllMonitoring();
+      ledger.saveState(); // Sauvegarde à l'arrêt
       
       await telegramBot.getBot().sendMessage(
         config.chatId,
@@ -89,7 +95,6 @@ async function main() {
     console.error('❌ ERREUR FATALE:', error);
     
     try {
-      // Tenter d'envoyer la dernière erreur
       await telegramBot.getBot().sendMessage(
         config.chatId,
         `❌ **ERREUR FATALE**\n\n${error.message}`,
