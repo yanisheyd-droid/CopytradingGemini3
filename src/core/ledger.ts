@@ -26,7 +26,6 @@ export interface Trade {
     pnlPercent?: number;
 }
 
-// Chemin absolu pour le fichier de sauvegarde (s'assurer qu'il fonctionne)
 const STATE_FILE = path.join(process.cwd(), 'state.json');
 
 class Ledger {
@@ -34,11 +33,10 @@ class Ledger {
     private trades: Map<string, Trade> = new Map();
 
     constructor() {
-        // Initialiser avec le master wallet (sera écrasé si loadState est appelé)
+        // Initialiser avec le master wallet
         this.addWallet(config.masterWallet, 'master');
     }
 
-    // NOUVELLE MÉTHODE (Corrige TS2339: loadState)
     loadState() {
         if (!fs.existsSync(STATE_FILE)) {
             console.log('💾 Aucun fichier d\'état trouvé. Démarrage à neuf.');
@@ -49,13 +47,11 @@ class Ledger {
             const data = fs.readFileSync(STATE_FILE, 'utf-8');
             const state = JSON.parse(data);
             
-            // Recharger les wallets (on utilise le master de la config en cours)
             this.wallets = new Map(
                 state.wallets.map((w: Wallet) => [w.address, w])
             );
             this.addWallet(config.masterWallet, 'master'); // S'assurer que le master est là
             
-            // Recharger les trades
             this.trades = new Map(
                 state.trades.map((t: Trade) => [t.id, t])
             );
@@ -66,7 +62,6 @@ class Ledger {
         }
     }
 
-    // NOUVELLE MÉTHODE (Corrige TS2339: saveState)
     saveState() {
         const state = {
             wallets: Array.from(this.wallets.values()),
@@ -75,7 +70,6 @@ class Ledger {
         
         try {
             fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf-8');
-            // console.log('💾 État sauvegardé'); // Commenté pour ne pas spammer le log
         } catch (error) {
             console.error('❌ Erreur de sauvegarde de l\'état:', error);
         }
