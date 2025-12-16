@@ -1,5 +1,3 @@
-// Assurez-vous que ce fichier est dans src/core/listener.ts
-
 import WebSocket from 'ws';
 import { PublicKey } from '@solana/web3.js';
 import { config, runtimeConfig } from '../config/environment';
@@ -13,8 +11,7 @@ logs: string[];
 }
 
 interface ParsedTransaction {
-// CORRECTION CRITIQUE: Initialiser à une string vide pour éviter 'undefined'
-walletSource: string; 
+walletSource: string; // Garanti d'être une string
 type: 'BUY' | 'SELL' | 'TRANSFER' | 'UNKNOWN';
 tokenMint?: string;
 tokenSymbol?: string;
@@ -25,7 +22,6 @@ timestamp: number;
 }
 
 class SolanaListener {
-// ... (reste de la classe inchangé jusqu'à parseTransactionLogs)
 private ws: WebSocket | null = null;
 private reconnectAttempts = 0;
 private maxReconnectAttempts = 10;
@@ -37,7 +33,164 @@ constructor() {
 this.watchedWallets.add(config.masterWallet);
 }
 
-// ... (fonctions start, stop, connect, attemptReconnect, subscribeToWallets, subscribeToWallet, handleMessage, processLogNotification inchangées)
+// Rendre start() PUBLIC et NON ASYNC pour simplifier les appels d'index.ts/bot.ts
+start() {
+if (this.isRunning) {
+console.log('Listener déjà actif');
+return;
+}
+
+console.log('🎧 Démarrage du listener WebSocket...');
+this.isRunning = true;
+this.connect();
+}
+
+// Rendre stop() PUBLIC
+stop() {
+this.isRunning = false;
+if (this.ws) {
+this.ws.close();
+this.ws = null;
+}
+console.log('🛑 Listener arrêté');
+}
+
+private connect() {
+try {
+this.ws = new WebSocket(config.quicknodeWss);
+
+  this.ws.on('open', () => {
+    console.log('✅ WebSocket connecté');
+    this.reconnectAttempts = 0;
+    this.subscribeToWallets();
+  });
+
+  this.ws.on('message', (data: WebSocket.Data) => {
+    this.handleMessage(data.toString());
+  });
+
+  this.ws.on('error', (error) => {
+    console.error('❌ WebSocket error:', error.message);
+  });
+
+  this.ws.on('close', () => {
+    console.log('🔌 WebSocket déconnecté');
+    this.attemptReconnect();
+  });
+
+} catch (error) {
+  console.error('❌ Erreur de connexion:', error);
+  this.attemptReconnect();
+}
+}
+
+private attemptReconnect() {
+if (!this.isRunning) return;
+
+if (this.reconnectAttempts < this.maxReconnectAttempts) {
+  this.reconnectAttempts++;
+  const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+  
+  console.log(`🔄 Reconnexion dans ${delay/1000}s (tentative ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+  
+  setTimeout(() => {
+    this.connect();
+  }, delay);
+} else {
+  console.error('❌ Max tentatives de reconnexion atteint');
+  this.isRunning = false;
+}
+}
+
+private subscribeToWallets() {
+if (!this.ws) return;
+
+// Récupérer les wallets actifs depuis le ledger
+const activeWallets = ledger.getActiveWallets();
+
+// Ajouter le master wallet
+if (!activeWallets.includes(config.masterWallet)) {
+  activeWallets.push(config.masterWallet);
+}
+
+// Mise à jour des wallets surveillés
+this.watchedWallets = new Set(activeWallets);
+
+console.log(`👀 Surveillance de ${this.watchedWallets.size} wallets...`);
+
+// Souscrire à chaque wallet
+this.watchedWallets.forEach(wallet => {
+  this.subscribeToWallet(wallet); // CORRECTION TS2339: Utilisation de this.subscribeToWallet(wallet)
+});
+}
+
+private subscribeToWallet(walletAddress: string) {
+if (!this.ws) return;
+
+const subscribeMessage = {
+  jsonrpc: '2.0',
+  id: Date.now(), // Utilisation d'un ID unique et numérique pour la souscription
+  method: 'logsSubscribe',
+  params: [
+    {
+      mentions: [walletAddress]
+    },
+    {
+      commitment: 'processed' // Latence minimale
+    }
+  ]
+};
+
+this.ws.send(JSON.stringify(subscribeMessage));
+console.log(`✅ Souscription au wallet: ${walletAddress.slice(0, 8)}...`);
+}
+
+private handleMessage(data: string) {
+try {
+const message = JSON.parse(data);
+
+  // Confirmation de souscription
+  if (message.result && message.id && !message.method) {
+    // Si la réponse correspond à une souscription (logsSubscribe), il renvoie l'ID d'abonnement
+    if (typeof message.result === 'number') {
+        this.subscriptionId = message.result;
+        console.log(`📡 Subscription ID: ${this.subscriptionId}`);
+    }
+    return;
+  }
+
+  // Notification de log
+  if (message.method === 'logsNotification') {
+    this.processLogNotification(message.params);
+  }
+
+} catch (error) {
+  console.error('❌ Erreur parsing message:', error);
+}
+}
+
+private async processLogNotification(params: any) {
+const result = params?.result;
+if (!result) return;
+
+const signature = result.value?.signature;
+const logs = result.value?.logs || [];
+const err = result.value?.err;
+
+if (err) {
+  console.log('⚠️ Transaction échouée:', signature);
+  return;
+}
+
+console.log(`📝 Transaction détectée: ${signature?.slice(0, 8)}...`);
+
+// Parser la transaction
+const parsed = this.parseTransactionLogs(logs, signature);
+
+if (parsed) {
+  await this.handleParsedTransaction(parsed);
+}
+}
 
 private parseTransactionLogs(logs: string[], signature: string): ParsedTransaction | null {
 // Détecter le type de transaction via les logs
@@ -45,13 +198,12 @@ let type: 'BUY' | 'SELL' | 'TRANSFER' | 'UNKNOWN' = 'UNKNOWN';
 let tokenMint: string | undefined;
 let amountSol = 0;
 let destinationWallet: string | undefined;
-let walletSource: string = ''; // Ajout d'une variable locale
+let walletSource: string = ''; // Initialisation à une chaîne vide
 
 const logString = logs.join(' ');
 
 // Détecter un SWAP (BUY ou SELL)
 if (logString.includes('Program log: Instruction: Swap')) {
-  // ... (Logique SWAP inchangée)
   if (logString.includes('wsol') || logString.includes('So11111111111111111111111111111111111111112')) {
     const solMatch = logString.match(/Transfer: (\d+\.?\d*) SOL/);
     if (solMatch) {
@@ -68,10 +220,7 @@ if (logString.includes('Program log: Instruction: Swap')) {
 
     if (logString.includes('from:') && logString.includes('to:')) {
       type = logString.indexOf('from:') < logString.indexOf('to:') ? 'BUY' : 'SELL';
-      // Tentative d'extraire la source (très difficile sans l'API, on utilise le master par défaut)
-      // Pour les trades, la source est souvent un wallet suivi qui a initié l'instruction.
-      // Par simplification, on l'initialise au master wallet si l'instruction de swap est détectée.
-      walletSource = config.masterWallet;
+      walletSource = config.masterWallet; // Par défaut pour un trade, utiliser le master
     }
   }
 }
@@ -89,7 +238,6 @@ if (logString.includes('Transfer') && logString.includes('lamports')) {
       if (addressMatch) {
         destinationWallet = addressMatch[1];
       }
-      // On peut aussi essayer d'extraire le 'from' pour la source dans le cas d'un TRANSFER
       const fromMatch = logString.match(/from: ([A-HJ-NP-Za-km-z1-9]{32,44})/);
       if (fromMatch) {
           walletSource = fromMatch[1];
@@ -100,8 +248,11 @@ if (logString.includes('Transfer') && logString.includes('lamports')) {
 
 if (type === 'UNKNOWN') return null;
 
+// CORRECTION TS2322: Assurer que walletSource est une string valide
+const finalWalletSource = walletSource && walletSource.length > 0 ? walletSource : config.masterWallet;
+
 return {
-  walletSource: walletSource || config.masterWallet, // ASSURER que c'est une string
+  walletSource: finalWalletSource, 
   type,
   tokenMint,
   amountSol,
@@ -135,12 +286,10 @@ if (parsed.type === 'TRANSFER' && parsed.destinationWallet && runtimeConfig.disc
 // TRADE DÉTECTÉ - BUY ou SELL
 if ((parsed.type === 'BUY' || parsed.type === 'SELL') && parsed.tokenMint) {
   
-  // Utiliser la walletSource parsée (qui est garantie d'être une string)
-  const source = parsed.walletSource; 
+  const source = parsed.walletSource; // Garanti d'être une string
 
   console.log(`🎯 ${parsed.type} détecté de ${source.slice(0, 8)}...: ${parsed.tokenMint.slice(0, 8)}...`);
 
-  // Créer le trade dans le ledger avec la config actuelle
   const trade = ledger.createTrade({
     walletSource: source, 
     tokenMint: parsed.tokenMint,
@@ -152,12 +301,9 @@ if ((parsed.type === 'BUY' || parsed.type === 'SELL') && parsed.tokenMint) {
     mode: config.mode
   });
 
-  // Notifier via Telegram (qui va auto-exécuter)
   await telegramBot.sendTradeDetected(trade);
 }
 }
-
-// ... (Reste de la classe inchangé)
 
 addWallet(address: string) {
 if (!this.watchedWallets.has(address)) {
