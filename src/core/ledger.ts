@@ -1,4 +1,8 @@
+// Assurez-vous que ce fichier est dans src/core/ledger.ts
+
 import { config } from '../config/environment';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface Wallet {
     address: string;
@@ -24,6 +28,8 @@ export interface Trade {
     pnlPercent?: number;
 }
 
+const STATE_FILE = path.join(process.cwd(), 'state.json');
+
 class Ledger {
     private wallets: Map<string, Wallet> = new Map();
     private trades: Map<string, Trade> = new Map();
@@ -31,6 +37,49 @@ class Ledger {
     constructor() {
         // Initialiser avec le master wallet
         this.addWallet(config.masterWallet, 'master');
+    }
+
+    // NOUVELLE MÉTHODE (Pour corriger l'erreur TS2339)
+    loadState() {
+        if (!fs.existsSync(STATE_FILE)) {
+            console.log('💾 Aucun fichier d\'état trouvé. Démarrage à neuf.');
+            return;
+        }
+
+        try {
+            const data = fs.readFileSync(STATE_FILE, 'utf-8');
+            const state = JSON.parse(data);
+            
+            // Recharger les wallets (sauf le master)
+            this.wallets = new Map(
+                state.wallets.map((w: Wallet) => [w.address, w])
+            );
+            this.addWallet(config.masterWallet, 'master'); // S'assurer que le master est là
+            
+            // Recharger les trades
+            this.trades = new Map(
+                state.trades.map((t: Trade) => [t.id, t])
+            );
+            
+            console.log(`✅ État chargé: ${this.wallets.size} wallets, ${this.trades.size} trades`);
+        } catch (error) {
+            console.error('❌ Erreur de chargement de l\'état:', error);
+        }
+    }
+
+    // NOUVELLE MÉTHODE (Pour la persistance)
+    saveState() {
+        const state = {
+            wallets: Array.from(this.wallets.values()),
+            trades: Array.from(this.trades.values())
+        };
+        
+        try {
+            fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf-8');
+            console.log('💾 État sauvegardé');
+        } catch (error) {
+            console.error('❌ Erreur de sauvegarde de l\'état:', error);
+        }
     }
 
     addWallet(address: string, type: 'master' | 'followed' | 'discovery') {
@@ -41,6 +90,7 @@ class Ledger {
                 isActive: true,
                 addedAt: Date.now()
             });
+            this.saveState(); // Sauvegarder après ajout
         }
     }
 
@@ -60,11 +110,11 @@ class Ledger {
             id: 'T' + Date.now(),
             status: 'PENDING',
             ...tradeData,
-            // Données Mock pour la compilation
             tokenSymbol: tradeData.tokenSymbol || 'MOCK',
             pnl: 0
         };
         this.trades.set(newTrade.id, newTrade);
+        this.saveState(); // Sauvegarder après création
         return newTrade;
     }
 
@@ -76,9 +126,11 @@ class Ledger {
         const trade = this.getTrade(id);
         if (trade) {
             this.trades.set(id, { ...trade, ...updates });
+            this.saveState(); // Sauvegarder après mise à jour
         }
     }
-
+    
+    // ... Reste des fonctions (getStats, getWallets, etc.) inchangé
     getStats() {
         const closedTrades = Array.from(this.trades.values()).filter(t => t.status === 'CLOSED');
         const totalPnl = closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
